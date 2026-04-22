@@ -77,3 +77,19 @@ def get_sessions(user_id: int):
         } for session in sessions]
     finally:
         db.close()
+
+@app.get("/sessions/{user_id}/Open")
+def get_sessions(user_id: int):
+    db = SessionLocal()
+    try:
+        session = db.query(Session).filter((Session.req_user_id == user_id) | (Session.acc_user_id == user_id),
+                                            Session.state == "open").first()
+        return {
+            "id": session.id,
+            "req_user_id": session.req_user_id,
+            "acc_user_id": session.acc_user_id,
+            "state": session.state,
+            "created_at": session.created_at
+        } 
+    finally:
+        db.close()
