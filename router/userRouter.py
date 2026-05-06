@@ -3,8 +3,9 @@ from schames.login import loginRequest
 from schames.personalInfo import personalInfoRequest
 from schames.register import registerRequest
 from tables.user import User
+from auth import create_access_token, get_current_user, verify_token
 from tools.password_hashed import hash_password, verify_legal_password, verify_password
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 app = APIRouter()
 
@@ -16,13 +17,27 @@ def login(user: loginRequest):
         if not matched_user:
             return {"msg": "invalid email or password"}
         if (verify_password(user.password, matched_user.password_hash)):
-            return {"msg": "login successful",
-                    "user_info": {
-                        "id": matched_user.id,
-                        "username": matched_user.username,
-                        "email": matched_user.email,
-                        "role": matched_user.role
-                    }}
+           # ✅ 登录成功后，用当前用户 id 生成 token
+            access_token = create_access_token({
+                "sub": str(matched_user.id)
+            })
+
+            return {
+                "msg": "login successful",
+
+                # ✅ 返回 token 给前端
+                "access_token": access_token,
+                "token_type": "bearer",
+
+                # ✅ 原来的用户信息照常返回
+                "user_info": {
+                    "id": matched_user.id,
+                    "username": matched_user.username,
+                    "email": matched_user.email,
+                    "role": matched_user.role
+                }
+            }
+
         else:
             return {"msg": "invalid email or password"}
 
@@ -38,7 +53,7 @@ def register(user: registerRequest):
             return {"msg": "email already registered"}
         
         if not verify_legal_password(user.password) :
-            return {"msg": "password must be at least 8 characters long"}
+            return {"msg": "Password requirements: 8–20 characters, must include uppercase letters, lowercase letters, and special characters"}
 
         new_user = User(
             username=user.username,
@@ -57,10 +72,14 @@ def register(user: registerRequest):
         db.close()
 
 @app.post("/user/update_profile")
-def update_profile(user_id: int, data: personalInfoRequest):
+def update_profile(
+    data: personalInfoRequest,
+    current_user: User = Depends(get_current_user)
+):
     db = SessionLocal()
+
     try:
-        user = db.query(User).filter(User.id == user_id).first()
+        user = db.query(User).filter(User.id == current_user.id).first()
 
         if not user:
             return {"msg": "user not found"}
@@ -79,11 +98,12 @@ def update_profile(user_id: int, data: personalInfoRequest):
 
         db.commit()
 
-        return {"msg": "profile updated"}
+        return {
+            "msg": "profile updated"
+        }
 
     finally:
         db.close()
-
 
 
 

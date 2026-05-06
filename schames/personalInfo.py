@@ -8,3 +8,4 @@ class personalInfoRequest(BaseModel):
     status: Optional[str] =None
     problem_type: Optional[str] = None
     preference: Optional[str] = None
+    token : str

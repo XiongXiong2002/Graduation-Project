@@ -8,14 +8,24 @@ class ConnectionManager:
         self.active_connections: dict[int, list[WebSocket]] = {}
 
     async def connect(self, session_id: int, websocket: WebSocket):
-        # 接受 WebSocket 连接（必须调用，否则前端无法建立连接）
+        # 🔌 websocket 是 FastAPI 自动创建并传进来的“连接对象”
+        # 每当有一个客户端（浏览器）连上来，这个函数就会收到一个新的 websocket
+
+        # ✅ 接受 WebSocket 连接（必须调用，否则连接不会建立成功）
+        # 类似于“同意握手”，不调用的话前端连不上
         await websocket.accept()
 
-        # 如果这个 session 还没有任何连接，初始化一个列表
+        # 🧠 active_connections 是一个字典，大概长这样：
+        # {
+        #   session_id: [websocket1, websocket2, ...]
+        # }
+
+        # 如果这个 session 还没有任何连接，就初始化一个列表
         if session_id not in self.active_connections:
             self.active_connections[session_id] = []
 
-        # 将当前 websocket 加入该 session 的在线列表
+        # ✅ 把当前这个 websocket 连接加入该 session 的连接池
+        # 这里存的是“连接对象”，不是数据
         self.active_connections[session_id].append(websocket)
 
     def disconnect(self, session_id: int, websocket: WebSocket):
