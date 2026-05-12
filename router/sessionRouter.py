@@ -2,9 +2,9 @@ from auth import get_current_user
 from database import SessionLocal
 from router.matchRouter import find_match_for_user
 from tables.sessions import Session 
-
+from sqlalchemy.exc import IntegrityError
 from tables.message import Message
-from schames.msg import msgRequest  
+from service.websocket_manager import manager   
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException
 
@@ -47,10 +47,24 @@ def create_session(
             acc_user_id=acc_user_id,
             state="open"
         )
+        try:
+            db.add(new_session)
+            db.commit()
+            db.refresh(new_session)
+        except IntegrityError:
+            db.rollback()
 
-        db.add(new_session)
-        db.commit()
-        db.refresh(new_session)
+            existing_session = db.query(Session).filter(
+            Session.req_user_id == current_user.id,
+            Session.state == "open"
+            ).first()
+
+            return {
+                "msg": "you already have an open session",
+                "session_id": existing_session.id if existing_session else None,
+                "match_type": match_result["match_type"],
+                "acc_user_id": acc_user_id
+            }
 
         return {
             "session_id": new_session.id,
@@ -63,27 +77,21 @@ def create_session(
 
 
 @app.post("/sessions/close")
-def close_session(session_id: int, current_user: User = Depends(get_current_user)): 
-    db = SessionLocal()
-    try:
-        session = db.query(Session).filter(Session.id == session_id).first()
+async def close_session_api(
+    session_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    # 1. 先关闭数据库 session
+    result = close_session_by_id(session_id, current_user.id)
 
-        if not session:
-            return {"msg": "session not found"}
+    # 2. 再关闭该 session 下所有 websocket 连接
+    await manager.close(session_id)
 
-        if session.req_user_id != current_user.id and session.acc_user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="you are not part of this session")
+    return result
 
-        if session.state == "closed":
-            return {"msg": "already closed"}
 
-        session.state = "closed"
-        db.commit()
 
-        return {"msg": "session closed"}
 
-    finally:
-        db.close()
 
 @app.get("/sessions/{session_id}/messages")
 def get_messages(session_id: int, current_user: User = Depends(get_current_user)):
@@ -141,5 +149,32 @@ def get_open_session(current_user: User = Depends(get_current_user)):
             "state": session.state,
             "created_at": session.created_at
         }
+    finally:
+        db.close()
+
+
+def close_session_by_id(session_id: int, current_user_id: int):
+    db = SessionLocal()
+
+    try:
+        session = db.query(Session).filter(Session.id == session_id).first()
+
+        if not session:
+            return {"msg": "session not found"}
+
+        if session.req_user_id != current_user_id and session.acc_user_id != current_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="you are not part of this session"
+            )
+
+        if session.state == "closed":
+            return {"msg": "already closed"}
+
+        session.state = "closed"
+        db.commit()
+
+        return {"msg": "session closed"}
+
     finally:
         db.close()

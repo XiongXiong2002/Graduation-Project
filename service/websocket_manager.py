@@ -1,61 +1,143 @@
 from fastapi import WebSocket
+import asyncio
+
 
 class ConnectionManager:
     def __init__(self):
-        # 存储当前所有在线连接
-        # 结构：{session_id: [websocket1, websocket2, ...]}
-        # 表示每个会话里有哪些用户在线（通过 websocket 表示）
+
+        # 当前所有在线 websocket 连接
+        # 结构：
+        # {
+        #     session_id: [websocket1, websocket2, ...]
+        # }
         self.active_connections: dict[int, list[WebSocket]] = {}
 
-    async def connect(self, session_id: int, websocket: WebSocket):
-        # 🔌 websocket 是 FastAPI 自动创建并传进来的“连接对象”
-        # 每当有一个客户端（浏览器）连上来，这个函数就会收到一个新的 websocket
+        # asyncio 异步锁
+        #
+        # 用来保护 active_connections 这个共享数据结构
+        #
+        # 否则可能出现：
+        # - 一边 broadcast 遍历 list
+        # - 一边 disconnect 删除 websocket
+        #
+        # 导致并发问题
+        self.lock = asyncio.Lock()
 
-        # ✅ 接受 WebSocket 连接（必须调用，否则连接不会建立成功）
-        # 类似于“同意握手”，不调用的话前端连不上
+    async def connect(self, session_id: int, websocket: WebSocket):
+
+        # 接受 websocket 连接
         await websocket.accept()
 
-        # 🧠 active_connections 是一个字典，大概长这样：
-        # {
-        #   session_id: [websocket1, websocket2, ...]
-        # }
+        # 加锁
+        #
+        # 保证同一时刻只有一个协程能修改 active_connections
+        async with self.lock:
 
-        # 如果这个 session 还没有任何连接，就初始化一个列表
-        if session_id not in self.active_connections:
-            self.active_connections[session_id] = []
+            # 如果这个 session 还不存在
+            if session_id not in self.active_connections:
 
-        # ✅ 把当前这个 websocket 连接加入该 session 的连接池
-        # 这里存的是“连接对象”，不是数据
-        self.active_connections[session_id].append(websocket)
+                # 初始化一个空列表
+                self.active_connections[session_id] = []
 
-    def disconnect(self, session_id: int, websocket: WebSocket):
-        # 如果该 session 存在于连接管理中
-        if session_id in self.active_connections:
-            # 如果该 websocket 在这个 session 的连接列表中
-            if websocket in self.active_connections[session_id]:
-                # 从列表中移除该连接（用户离开）
-                self.active_connections[session_id].remove(websocket)
+            # 将当前 websocket 加入该 session 的连接池
+            self.active_connections[session_id].append(websocket)
 
-            # 如果这个 session 已经没有任何在线连接了
-            if not self.active_connections[session_id]:
-                # 删除该 session，释放内存
-                del self.active_connections[session_id]
+    async def disconnect(self, session_id: int, websocket: WebSocket):
+
+        # 加锁
+        async with self.lock:
+
+            # 如果该 session 存在
+            if session_id in self.active_connections:
+
+                # 如果 websocket 在连接列表中
+                if websocket in self.active_connections[session_id]:
+
+                    # 删除该 websocket
+                    self.active_connections[session_id].remove(websocket)
+
+                # 如果这个 session 已经没人在线
+                if not self.active_connections[session_id]:
+
+                    # 删除整个 session
+                    del self.active_connections[session_id]
+
+    async def close(self, session_id: int):
+
+        # 加锁
+        #
+        # 这里使用 pop：
+        # - 直接取出整个连接列表
+        # - 同时从 active_connections 删除
+        #
+        # 如果 session 不存在，返回空列表
+        async with self.lock:
+
+            connections = self.active_connections.pop(
+                session_id,
+                []
+            ).copy()
+
+        # 注意：
+        # websocket.close() 不放在 lock 里面
+        #
+        # 因为关闭连接可能很慢
+        # 如果放在锁里，会卡住整个系统
+        for connection in connections:
+
+            try:
+                # 强制关闭 websocket
+                await connection.close()
+
+            except Exception:
+                # 如果连接本来就断了
+                # 忽略错误
+                pass
 
     async def broadcast(self, session_id: int, message: dict):
-        # 如果该 session 当前有在线用户
-        if session_id in self.active_connections:
-            # 用来记录发送失败（断开的连接）
-            disconnected = []
 
-            # 遍历该 session 中的所有 websocket 连接
-            for connection in self.active_connections[session_id]:
-                try:
-                    # 向每一个连接发送消息（实时推送）
-                    await connection.send_json(message)
-                except:
-                    # 如果发送失败（说明连接已断开），先记录下来
-                    disconnected.append(connection)
+        # 加锁
+        #
+        # 这里只复制连接列表
+        # 不在锁里真正发送消息
+        async with self.lock:
 
-            # 清理所有已经断开的连接
-            for connection in disconnected:
-                self.disconnect(session_id, connection)
+            # copy 非常关键
+            #
+            # 否则：
+            # 一边遍历
+            # 一边 disconnect remove
+            #
+            # 会导致并发问题
+            connections = self.active_connections.get(
+                session_id,
+                []
+            ).copy()
+
+        # 存储已经断开的 websocket
+        disconnected = []
+
+        # 遍历所有 websocket
+        for connection in connections:
+
+            try:
+                # 向前端发送 json 消息
+                await connection.send_json(message)
+
+            except Exception:
+
+                # 如果发送失败
+                # 说明 websocket 已断开
+                disconnected.append(connection)
+
+        # 清理断开的 websocket
+        for connection in disconnected:
+
+            # disconnect 里面本身会加锁
+            await self.disconnect(session_id, connection)
+
+
+# 全局 websocket 管理器
+#
+# 整个项目只需要一个实例
+manager = ConnectionManager()

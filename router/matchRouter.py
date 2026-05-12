@@ -1,37 +1,65 @@
-from datetime import datetime, timezone
-from tables.user import User
 from database import SessionLocal
-from fastapi import Depends
-from fastapi import HTTPException
+from tables.user import User
+from tables.matchPool import MatchPool
+from fastapi import Depends, APIRouter
 from auth import get_current_user
-from fastapi import APIRouter
+from sqlalchemy.exc import IntegrityError
 
 app = APIRouter()
-# matchRouter.py
-online_users = set()        # 当前在匹配池的人
-matched_users = set()       # 已经匹配中的人（防止重复匹配）
+
 
 @app.post("/match/join")
 def join(current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
 
-    # 防重复加入
-    if current_user.id in online_users:
+    try:
+        if current_user.role != "mentor":
+            return {"msg": "only mentor can join match pool"}
+
+        existing = db.query(MatchPool).filter(
+            MatchPool.mentor_id == current_user.id
+        ).first()
+
+        if existing:
+            return {"msg": "already in pool"}
+
+        pool_item = MatchPool(
+            mentor_id=current_user.id,
+            status=current_user.status,
+            problem_type=current_user.problem_type
+        )
+
+        db.add(pool_item)
+        db.commit()
+
+        return {"msg": "joined"}
+
+    except IntegrityError:
+        db.rollback()
         return {"msg": "already in pool"}
 
-    # 清理旧匹配状态（非常关键）
-    matched_users.discard(current_user.id)
+    finally:
+        db.close()
 
-    online_users.add(current_user.id)
-
-    return {"msg": "joined"}
 
 @app.post("/match/leave")
 def leave(current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
 
-    online_users.discard(current_user.id)
-    matched_users.discard(current_user.id)
+    try:
+        pool_item = db.query(MatchPool).filter(
+            MatchPool.mentor_id == current_user.id
+        ).first()
 
-    return {"msg": "left"}
+        if pool_item:
+            db.delete(pool_item)
+            db.commit()
+
+        return {"msg": "left"}
+
+    finally:
+        db.close()
+
 
 def find_match_for_user(user_id: int, db):
     current_user = db.query(User).filter(User.id == user_id).first()
@@ -39,36 +67,25 @@ def find_match_for_user(user_id: int, db):
     if not current_user:
         return {"match_type": "error", "msg": "user not found"}
 
-    for candidate_id in list(online_users):
-        if candidate_id == user_id:
-            continue
+    candidate = db.query(MatchPool).filter(
+        MatchPool.status == current_user.status,
+        MatchPool.problem_type == current_user.problem_type
+    ).order_by(
+        MatchPool.joined_at.asc()
+    ).with_for_update(skip_locked=True).first()
 
-        if candidate_id in matched_users:
-            continue
+    if not candidate:
+        return {
+            "match_type": "none",
+            "acc_user_id": None,
+            "msg": "no mentor available"
+        }
 
-        candidate = db.query(User).filter(User.id == candidate_id).first()
+    acc_user_id = candidate.mentor_id
 
-        if not candidate:
-            continue
-
-        if (
-            candidate.role == "mentor"
-            and candidate.status == current_user.status
-            and candidate.problem_type == current_user.problem_type
-        ):
-            matched_users.add(candidate_id)
-            matched_users.add(user_id)
-
-            online_users.discard(candidate_id)
-            online_users.discard(user_id)
-
-            return {
-                "match_type": "mentor",
-                "acc_user_id": candidate_id
-            }
+    db.delete(candidate)
 
     return {
-        "match_type": "none",
-        "acc_user_id": None,
-        "msg": "no mentor available"
+        "match_type": "mentor",
+        "acc_user_id": acc_user_id
     }

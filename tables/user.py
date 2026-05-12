@@ -1,6 +1,6 @@
 from database import Base 
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Boolean, Column, Integer, String
 
 
 class User(Base):
@@ -18,6 +18,8 @@ class User(Base):
     problem_type = Column(String(100), nullable=True)
     # 交流偏好（优先AI / 优先真人 / 都可以）
     preference = Column(String(20), nullable=True)
+    # 邮箱是否验证
+    is_email_verified = Column(Boolean, nullable=False, default=False)
     
 
     
