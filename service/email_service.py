@@ -9,12 +9,14 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 import os
 
-# 读取 .env
+
 load_dotenv()
 
-# 读取邮箱账号
-MY_GMAIL = os.getenv("MY_GMAIL")
-MY_PASSWORD = os.getenv("MY_PASSWORD")
+MY_GMAIL = os.getenv("EMAIL_ADDRESS")
+MY_PASSWORD = os.getenv("EMAIL_PASSWORD")
+
+print(MY_GMAIL)
+print(MY_PASSWORD)
 
 
 # 定义发送邮件函数
@@ -51,9 +53,3 @@ def send_email(to_email, subject, body):
     server.quit()
 
 
-# 测试发送
-send_email(
-    to_email="你自己的另一个邮箱@gmail.com",
-    subject="Test Email",
-    body="Hello World"
-)

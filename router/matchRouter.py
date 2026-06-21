@@ -4,8 +4,10 @@ from tables.matchPool import MatchPool
 from fastapi import Depends, APIRouter
 from auth import get_current_user
 from sqlalchemy.exc import IntegrityError
+from tables.sessions import Session
 
 app = APIRouter()
+
 
 
 @app.post("/match/join")
@@ -13,34 +15,107 @@ def join(current_user: User = Depends(get_current_user)):
     db = SessionLocal()
 
     try:
-        if current_user.role != "mentor":
-            return {"msg": "only mentor can join match pool"}
 
+        # =========================
+        # 只有导师允许加入匹配池
+        # =========================
+        if current_user.role != "mentor":
+
+            return {
+                "msg": "only mentor can join match pool"
+            }
+
+        # =========================
+        # 检查是否已经存在 open session
+        #
+        # 防止：
+        # - 导师正在聊天
+        # - 用户修改前端
+        # - 强行再次加入匹配池
+        #
+        # 如果存在 open session
+        # 直接返回当前 session
+        # =========================
+        open_session = db.query(Session).filter(
+            (
+                (Session.req_user_id == current_user.id) |
+                (Session.acc_user_id == current_user.id)
+            ) &
+            (Session.state == "open")
+        ).first()
+
+        if open_session:
+
+            return {
+                "msg": "you already have an open session",
+
+                # 当前打开的 session
+                "session_id": open_session.id
+            }
+
+        # =========================
+        # 检查是否已经在匹配池
+        #
+        # 防止重复点击
+        # =========================
         existing = db.query(MatchPool).filter(
             MatchPool.mentor_id == current_user.id
         ).first()
 
         if existing:
-            return {"msg": "already in pool"}
 
+            return {
+                "msg": "already in pool"
+            }
+
+        # =========================
+        # 创建匹配池记录
+        #
+        # status:
+        # current_student / withdrawn_student
+        #
+        # problem_type:
+        # academic / financial / social ...
+        #
+        # 后续学生匹配时会根据这些字段筛选
+        # =========================
         pool_item = MatchPool(
             mentor_id=current_user.id,
+
             status=current_user.status,
+
             problem_type=current_user.problem_type
         )
 
+        # 写入数据库
         db.add(pool_item)
+
         db.commit()
 
-        return {"msg": "joined"}
+        # =========================
+        # 加入成功
+        # =========================
+        return {
+            "msg": "joined"
+        }
 
+    # =========================
+    # 数据库唯一约束保护
+    #
+    # 即使两个请求同时到达
+    # 也不会产生两条记录
+    # =========================
     except IntegrityError:
+
         db.rollback()
-        return {"msg": "already in pool"}
+
+        return {
+            "msg": "already in pool"
+        }
 
     finally:
-        db.close()
 
+        db.close()
 
 @app.post("/match/leave")
 def leave(current_user: User = Depends(get_current_user)):

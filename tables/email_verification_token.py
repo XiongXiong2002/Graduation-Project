@@ -22,7 +22,6 @@ class EmailVerificationToken(Base):
     used = Column(Boolean,nullable=False,default=False)
 
     # 过期时间
-    expires_at = Column(DateTime, nullable=False)
-
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     # 创建时间
-    created_at = Column(DateTime,default=lambda: datetime.now(timezone.utc),nullable=False)
+    created_at = Column( DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),nullable=False)

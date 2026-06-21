@@ -17,6 +17,12 @@ app = APIRouter()
 def create_session(
     current_user: User = Depends(get_current_user)
 ):
+    if current_user.role != "student":
+        raise HTTPException(
+        status_code=403,
+        detail="only student can create session"
+    )
+
     db = SessionLocal()
 
     try:
@@ -131,17 +137,50 @@ def get_sessions(current_user: User = Depends(get_current_user)):
         db.close()
 
 @app.get("/sessions/open")
-def get_open_session(current_user: User = Depends(get_current_user)):
+def get_open_session(
+    current_user: User = Depends(get_current_user)
+):
     db = SessionLocal()
+
     try:
+
+        # =========================
+        # 查询当前用户是否存在 open session
+        #
+        # 同时检查：
+        # 1. 当前用户是学生(req_user)
+        # 2. 当前用户是导师(acc_user)
+        #
+        # 防止用户通过：
+        # - 浏览器历史记录
+        # - 手动输入 URL
+        # - 修改前端代码
+        #
+        # 绕过聊天页面
+        # =========================
         session = db.query(Session).filter(
-            ((Session.req_user_id == current_user.id) | (Session.acc_user_id == current_user.id)) &
+            (
+                (Session.req_user_id == current_user.id) |
+                (Session.acc_user_id == current_user.id)
+            ) &
             (Session.state == "open")
         ).first()
 
+        # =========================
+        # 当前没有 open session
+        # =========================
         if not session:
-            return {"msg": "no open session"}
 
+            return {
+                "msg": "no open session"
+            }
+
+        # =========================
+        # 返回当前 open session
+        #
+        # 前端可以根据返回结果：
+        # navigate(`/chat/${session.id}`)
+        # =========================
         return {
             "id": session.id,
             "req_user_id": session.req_user_id,
@@ -149,7 +188,9 @@ def get_open_session(current_user: User = Depends(get_current_user)):
             "state": session.state,
             "created_at": session.created_at
         }
+
     finally:
+
         db.close()
 
 
