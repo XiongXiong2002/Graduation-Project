@@ -5,6 +5,7 @@ from fastapi import Depends, APIRouter
 from auth import get_current_user
 from sqlalchemy.exc import IntegrityError
 from tables.sessions import Session
+from tools.programme_similarity import programme_match_score
 
 app = APIRouter()
 
@@ -84,7 +85,13 @@ def join(current_user: User = Depends(get_current_user)):
 
             status=current_user.status,
 
-            problem_type=current_user.problem_type
+            problem_type=current_user.problem_type,
+
+            institution=current_user.institution,
+
+            location=current_user.location,
+
+            programme=current_user.programme
         )
 
         # 写入数据库
@@ -137,30 +144,123 @@ def leave(current_user: User = Depends(get_current_user)):
 
 
 def find_match_for_user(user_id: int, db):
-    current_user = db.query(User).filter(User.id == user_id).first()
 
+    # =========================
+    # 获取当前学生信息
+    # =========================
+    current_user = db.query(User).filter(
+        User.id == user_id
+    ).first()
+
+    # 用户不存在
     if not current_user:
-        return {"match_type": "error", "msg": "user not found"}
 
-    candidate = db.query(MatchPool).filter(
-        MatchPool.status == current_user.status,
-        MatchPool.problem_type == current_user.problem_type
-    ).order_by(
-        MatchPool.joined_at.asc()
-    ).with_for_update(skip_locked=True).first()
-
-    if not candidate:
         return {
-            "match_type": "none",
-            "acc_user_id": None,
-            "msg": "no mentor available"
+            "match_type": "error",
+            "msg": "user not found"
         }
 
-    acc_user_id = candidate.mentor_id
+    # =========================
+    # 第一层硬筛选
+    #
+    # 仅寻找：
+    # - 相同身份
+    # - 相同问题类型
+    #
+    # MatchPool 保存的是导师加入匹配池时
+    # 的资料快照
+    # =========================
+    candidates = db.query(MatchPool).filter(
+        MatchPool.status == current_user.status,
+        MatchPool.problem_type == current_user.problem_type
+    ).all()
 
-    db.delete(candidate)
+    # 没有符合条件的导师
+    if not candidates:
 
+        return {
+            "match_type": "none"
+        }
+
+    # 当前最佳导师
+    best_candidate = None
+
+    # 当前最高分
+    best_score = -1
+
+    # =========================
+    # 第二层加权评分
+    #
+    # 学校：+4
+    # 地区：+1
+    # 专业：programme_match_score()
+    # =========================
+    for candidate in candidates:
+
+        # =========================
+        # 理论保险
+        #
+        # 如果导师已经进入聊天
+        # 不参与新的匹配
+        # =========================
+        open_session = db.query(Session).filter(
+            (
+                (Session.req_user_id == candidate.mentor_id) |
+                (Session.acc_user_id == candidate.mentor_id)
+            ) &
+            (Session.state == "open")
+        ).first()
+
+        if open_session:
+            continue
+
+        score = 0
+
+        # -------------------------
+        # 同学校
+        # -------------------------
+        if candidate.institution == current_user.institution:
+
+            score += 4
+
+        # -------------------------
+        # 同地区
+        # -------------------------
+        if candidate.location == current_user.location:
+
+            score += 1
+
+        # -------------------------
+        # 专业相似度
+        # -------------------------
+        score += programme_match_score(
+            current_user.programme,
+            candidate.programme
+        )
+
+        # -------------------------
+        # 更新最佳导师
+        # -------------------------
+        if score > best_score:
+
+            best_score = score
+            best_candidate = candidate
+
+    # =========================
+    # 所有导师均不可匹配
+    # =========================
+    if not best_candidate:
+
+        return {
+            "match_type": "none"
+        }
+
+    # =========================
+    # 返回最佳导师
+    #
+    # MatchPool 中保存的是 mentor_id
+    # =========================
     return {
         "match_type": "mentor",
-        "acc_user_id": acc_user_id
+        "acc_user_id": best_candidate.mentor_id
     }

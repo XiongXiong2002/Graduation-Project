@@ -93,10 +93,15 @@ def login(user: loginRequest):
                     "id": matched_user.id,
                     "username": matched_user.username,
                     "email": matched_user.email,
-                    "role": matched_user.role
+                    "role": matched_user.role,
+                    "status": matched_user.status,
+                    "problem_type": matched_user.problem_type,
+                    "preference": matched_user.preference,
+                    "institution": matched_user.institution,
+                    "programme": matched_user.programme,
+                    "location": matched_user.location
                 }
             }
-
         # 密码错误
         else:
 
@@ -146,7 +151,10 @@ def register(user: registerRequest):
             role=user.role,
             status=user.status,
             problem_type=user.problem_type,
-            preference=user.preference
+            preference=user.preference,
+            institution=user.institution,
+            programme=user.programme,
+            location=user.location
         )
 
         db.add(new_user)
@@ -302,7 +310,8 @@ def check_reset_token(req: CheckResetTokenRequest):
 
         db.close()
 
-
+# 检查重置密码 token 是否有效
+# 用于 Reset Password 页面加载时验证链接合法性
 @app.post("/user/reset_password")
 def reset_password(req: ResetPasswordRequest):  
     db = SessionLocal()

@@ -2,6 +2,8 @@ from auth import get_current_user
 from database import SessionLocal
 from router.matchRouter import find_match_for_user
 from tables.sessions import Session 
+from tables.matchPool import MatchPool
+from fastapi import Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from tables.message import Message
 from service.websocket_manager import manager   
@@ -83,17 +85,19 @@ def create_session(
 
 
 @app.post("/sessions/close")
-async def close_session_api(
-    session_id: int,
-    current_user: User = Depends(get_current_user)
-):
-    # 1. 先关闭数据库 session
+async def close_session_api(session_id: int,current_user: User = Depends(get_current_user)):
+    # 1.先发送通知给前端，告知 session 已关闭
+    await manager.broadcast(session_id,{"type": "session_closed"})
+
+    # 2. 再关闭数据库 session
     result = close_session_by_id(session_id, current_user.id)
 
-    # 2. 再关闭该 session 下所有 websocket 连接
+    # 3. 再关闭该 session 下所有 websocket 连接
     await manager.close(session_id)
 
     return result
+
+    
 
 
 
@@ -203,7 +207,7 @@ def close_session_by_id(session_id: int, current_user_id: int):
         if not session:
             return {"msg": "session not found"}
 
-        if session.req_user_id != current_user_id and session.acc_user_id != current_user_id:
+        if (session.req_user_id != current_user_id and session.acc_user_id != current_user_id):
             raise HTTPException(
                 status_code=403,
                 detail="you are not part of this session"
@@ -212,10 +216,20 @@ def close_session_by_id(session_id: int, current_user_id: int):
         if session.state == "closed":
             return {"msg": "already closed"}
 
+        # 1. 关闭 session
         session.state = "closed"
+
+        # 2. 清理双方在匹配池里的残留
+        db.query(MatchPool).filter(MatchPool.mentor_id.in_([ session.req_user_id,session.acc_user_id])).delete(synchronize_session=False)
+
+        # 3. 一次性提交
         db.commit()
 
         return {"msg": "session closed"}
+
+    except Exception:
+        db.rollback()
+        raise
 
     finally:
         db.close()

@@ -1,12 +1,14 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException
 
-from auth import verify_token
+from auth import verify_token,get_current_user
 from database import SessionLocal
 from service.websocket_manager import manager
 from router.sessionRouter import close_session_by_id
 
+
 from tables.sessions import Session
 from tables.message import Message
+from tables.user import User
 
 
 app = APIRouter()
@@ -61,19 +63,36 @@ async def chat_ws(websocket: WebSocket, token: str):
                     close_session_by_id(session_id, user_id)
 
                     return
+                
+                msg_type = data.get("type") or "text_message"
+
+                # 语音 / WebRTC 信令：只转发，不保存数据库
+                if msg_type in [
+                    "voice_request",
+                    "voice_accept",
+                    "voice_reject",
+                    "voice_end",
+                    "voice_offer",
+                    "voice_answer",
+                    "ice_candidate",
+                ]:
+                    await manager.broadcast(session_id, data)
+                    continue
 
 
+                
+                
                 content = data.get("content", "").strip()
 
                 if not content:
-                    await websocket.send_json({"error": "empty message"})
-                    continue
+                        await websocket.send_json({"error": "empty message"})
+                        continue
 
                 new_message = Message(
                     session_id=session_id,
                     sender_id=user_id,
                     sender_type="user",
-                    content=content
+                    content=content 
                 )
 
                 db.add(new_message)
@@ -81,6 +100,7 @@ async def chat_ws(websocket: WebSocket, token: str):
                 db.refresh(new_message)
 
                 await manager.broadcast(session_id, {
+                    "type":"text_message",
                     "id": new_message.id,
                     "session_id": new_message.session_id,
                     "sender_id": new_message.sender_id,
@@ -90,6 +110,7 @@ async def chat_ws(websocket: WebSocket, token: str):
                 })
 
         except WebSocketDisconnect:
+            print("broken")
             manager.disconnect(session_id, websocket)
 
     except Exception as e:
@@ -102,3 +123,4 @@ async def chat_ws(websocket: WebSocket, token: str):
 
     finally:
         db.close()
+

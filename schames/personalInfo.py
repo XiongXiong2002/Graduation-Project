@@ -8,3 +8,10 @@ class personalInfoRequest(BaseModel):
     status: Optional[str] =None
     problem_type: Optional[str] = None
     preference: Optional[str] = None
+    # 学校信息
+    institution:Optional[str] = None
+    # 专业信息
+    programme:Optional[str] = None
+    # 当前地区
+    location: Optional[str] = None
+

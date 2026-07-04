@@ -1,3 +1,6 @@
+from json import load
+import json
+
 from database import SessionLocal
 from schames.personalInfo import personalInfoRequest
 from tables.user import User
@@ -105,6 +108,24 @@ def update_profile(
 
             user.preference = data.preference
 
+        #========================
+        # 更新学校信息
+        #========================
+        if data.institution is not None:
+            user.institution = data.institution
+
+        #========================
+        # 更新专业信息  
+        #========================
+        if data.programme is not None:
+            user.programme = data.programme
+
+        #========================
+        # 更新当前地区      
+        #========================
+        if data.location is not None:
+            user.location = data.location
+
         # =========================
         # 提交数据库修改
         # =========================
@@ -132,10 +153,27 @@ def update_profile(
                 "role": user.role,
                 "status": user.status,
                 "problem_type": user.problem_type,
-                "preference": user.preference
+                "preference": user.preference,
+                "institution": user.institution,
+                "programme": user.programme,
+                "location": user.location
             }
         }
 
     finally:
 
         db.close()
+
+@app.get("/user/get_universities")
+def get_universities():
+    with open("data/uk_universities.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+@app.get("/user/get_locations")
+def get_locations():
+    with open("data/uk_cities.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+    
+       

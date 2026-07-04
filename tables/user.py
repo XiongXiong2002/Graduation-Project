@@ -20,6 +20,10 @@ class User(Base):
     preference = Column(String(20), nullable=True)
     # 邮箱是否验证
     is_email_verified = Column(Boolean, nullable=False, default=False)
-    
+    # 学校信息
+    institution = Column(String(100), nullable=True)
+    # 专业信息
+    programme = Column(String(100), nullable=True)
 
-    
+    # 当前地区
+    location = Column(String(100), nullable=True)
