@@ -1,12 +1,17 @@
+# third-party dependencies
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # 导入各个 router
-from router.userRouter import app as user_router
-from router.sessionRouter import app as session_router
+# routers
+from router.authRouter import app as auth_router
 from router.chatRouter import app as chat_router
 from router.matchRouter import app as match_router
-from router.authRouter import app as auth_router
+from router.sessionRouter import app as session_router
+from router.userRouter import app as user_router
+
+# database initialization
 from init_db import init_db
 
 init_db()
@@ -14,6 +19,9 @@ init_db()
 
 # 创建 FastAPI 应用
 app = FastAPI()
+
+# 将项目 img 目录挂载为静态资源目录，导师展示页可按已保存的图片路径读取头像。
+app.mount("/img", StaticFiles(directory="img"), name="img")
 
 
 # =========================

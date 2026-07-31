@@ -1,8 +1,13 @@
 
 
-from database import Base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+# standard library
 from datetime import datetime, timezone
+
+# third-party dependencies
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+
+# database
+from database import Base
 
 
 

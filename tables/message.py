@@ -1,5 +1,10 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+# standard library
 from datetime import datetime, timezone
+
+# third-party dependencies
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+
+# database
 from database import Base
 
 class Message(Base):
@@ -11,7 +16,7 @@ class Message(Base):
     # 所属对话ID
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False, index=True)
 
-    # 发送方（user / ai / mentor）
+    # 发送方（user / ai ）
     sender_type= Column(String(20), nullable=False)
 
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=True) # 发送者ID，用户消息为用户ID，AI消息为null

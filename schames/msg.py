@@ -1,6 +1,8 @@
+# standard library
 from typing import Optional
 
-from pydantic import BaseModel ,EmailStr
+# third-party dependencies
+from pydantic import BaseModel, EmailStr
  
 class msgRequest(BaseModel):
     session_id: int

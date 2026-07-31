@@ -1,10 +1,20 @@
-from database import SessionLocal
-from tables.user import User
-from tables.matchPool import MatchPool
-from fastapi import Depends, APIRouter
-from auth import get_current_user
+# third-party dependencies
+from fastapi import APIRouter, Depends
 from sqlalchemy.exc import IntegrityError
+
+# authentication
+from auth import get_current_user
+
+# database
+from database import SessionLocal
+
+# database tables
+from tables.black_list import BlackList
+from tables.matchPool import MatchPool
 from tables.sessions import Session
+from tables.user import User
+
+# tools
 from tools.programme_similarity import programme_match_score
 
 app = APIRouter()
@@ -142,12 +152,23 @@ def leave(current_user: User = Depends(get_current_user)):
     finally:
         db.close()
 
+# 负责拿到所有的
+@app.get("/match/find")
+def find_match_for_user(current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
 
-def find_match_for_user(user_id: int, db):
+    try:
+        return _find_match_for_user(current_user, db)
+    finally:
+        db.close()
+
+
+def _find_match_for_user(current_user: User, db):
 
     # =========================
     # 获取当前学生信息
     # =========================
+    user_id = current_user.id
     current_user = db.query(User).filter(
         User.id == user_id
     ).first()
@@ -166,27 +187,60 @@ def find_match_for_user(user_id: int, db):
     # 仅寻找：
     # - 相同身份
     # - 相同问题类型
+    # - 没被拉黑
     #
     # MatchPool 保存的是导师加入匹配池时
     # 的资料快照
     # =========================
-    candidates = db.query(MatchPool).filter(
-        MatchPool.status == current_user.status,
-        MatchPool.problem_type == current_user.problem_type
-    ).all()
-
+    mentors = (
+        db.query(User)
+        # 获取应该匹配的导师的个人信息
+        .join(MatchPool, MatchPool.mentor_id == User.id)
+        .filter(
+            MatchPool.status == current_user.status,
+            MatchPool.problem_type == current_user.problem_type,
+            User.role == "mentor",
+            User.id != current_user.id,
+        )
+        # 过滤掉被拉黑的导师
+        .filter(
+            ~User.id.in_(
+                db.query(BlackList.blocked_id).filter(
+                    BlackList.blocker_id == current_user.id
+                )
+            )
+        )
+        # 过滤掉拉黑当前学生的导师
+        .filter(
+            ~User.id.in_(
+                db.query(BlackList.blocker_id).filter(
+                    BlackList.blocked_id == current_user.id
+                )
+            )
+        )
+        .filter(
+            # 过滤掉已经在聊天的导师
+            ~User.id.in_(
+                db.query(Session.acc_user_id).filter(
+                    Session.state == "open",
+                    # AI session 的 acc_user_id 为 NULL；必须排除 NULL，
+                    # 否则 SQL 的 NOT IN 子查询可能把全部 Mentor 都过滤掉。
+                    Session.acc_user_id.isnot(None)
+                )
+            )
+        )
+        .all()
+    )
+    
     # 没有符合条件的导师
-    if not candidates:
+    if not mentors:
 
         return {
             "match_type": "none"
         }
 
-    # 当前最佳导师
-    best_candidate = None
 
-    # 当前最高分
-    best_score = -1
+    result =[]
 
     # =========================
     # 第二层加权评分
@@ -195,7 +249,7 @@ def find_match_for_user(user_id: int, db):
     # 地区：+1
     # 专业：programme_match_score()
     # =========================
-    for candidate in candidates:
+    for candidate in mentors:
 
         # =========================
         # 理论保险
@@ -203,17 +257,6 @@ def find_match_for_user(user_id: int, db):
         # 如果导师已经进入聊天
         # 不参与新的匹配
         # =========================
-        open_session = db.query(Session).filter(
-            (
-                (Session.req_user_id == candidate.mentor_id) |
-                (Session.acc_user_id == candidate.mentor_id)
-            ) &
-            (Session.state == "open")
-        ).first()
-
-        if open_session:
-            continue
-
         score = 0
 
         # -------------------------
@@ -239,28 +282,32 @@ def find_match_for_user(user_id: int, db):
         )
 
         # -------------------------
-        # 更新最佳导师
+        # 给该导师添加分数
         # -------------------------
-        if score > best_score:
+        result.append({
+        "id": candidate.id,
+        "username": candidate.username,
+        "institution": candidate.institution,
+        "programme": candidate.programme,
+        "location": candidate.location,
+        "status": candidate.status,
+        "problem_type": candidate.problem_type,
+        # 导师列表需要头像路径和格言进行展示。
+        "img": candidate.photo,
+        "motto": candidate.motto,
+        "score": score,
+    })
+       
 
-            best_score = score
-            best_candidate = candidate
 
     # =========================
-    # 所有导师均不可匹配
-    # =========================
-    if not best_candidate:
-
-        return {
-            "match_type": "none"
-        }
-
-    # =========================
-    # 返回最佳导师
+    # 排序后返回所有导师
     #
     # MatchPool 中保存的是 mentor_id
     # =========================
+    # result 中保存的是字典，因此按字典里的 score 从高到低排序。
+    result.sort(key=lambda x: x["score"], reverse=True)
     return {
         "match_type": "mentor",
-        "acc_user_id": best_candidate.mentor_id
+        "all available mentors": result,
     }

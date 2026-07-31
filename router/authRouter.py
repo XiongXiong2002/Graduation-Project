@@ -1,3 +1,10 @@
+# standard library
+from datetime import datetime, timedelta, timezone
+
+# third-party dependencies
+from fastapi import APIRouter
+
+# database
 from database import SessionLocal
 
 # request schema
@@ -10,6 +17,8 @@ from schames.check_reset import CheckResetTokenRequest
 from tables.user import User
 from tables.email_verification_token import EmailVerificationToken
 from tables.PasswordResetToken import PasswordResetToken
+from tables.ai_summary import AISummary
+
 
 # auth
 from auth import create_access_token
@@ -20,6 +29,13 @@ from tools.password_hashed import (
     verify_legal_password,
     verify_password
 )
+from tools.get_file_data import (
+    load_city_names,
+    load_university_names,
+    VALID_PROBLEM_TYPES,
+    VALID_STATUSES,
+    VALID_IMG,
+)
 
 # token generator
 from tools.token_create import generate_token
@@ -27,15 +43,11 @@ from tools.token_create import generate_token
 # email service
 from service.email_service import send_email
 
-# fastapi
-from fastapi import APIRouter
-
-# datetime
-from datetime import datetime, timedelta, timezone
-
-
 # 创建 router
 app = APIRouter()
+
+VALID_CITIES = load_city_names()
+VALID_UNIVERSITIES = load_university_names()
 
 
 # =========================
@@ -69,15 +81,15 @@ def login(user: loginRequest):
             }
 
         # 密码正确
-        if verify_password(
-            user.password,
-            matched_user.password_hash
-        ):
+        if verify_password(user.password,matched_user.password_hash):
+            matched_user.logged_in_id = matched_user.logged_in_id+1
 
+            # 保存到数据库
+            db.commit()
+            db.refresh(matched_user)
             # 生成 JWT token
-            access_token = create_access_token({
-                "sub": str(matched_user.id)
-            })
+            access_token = create_access_token({"sub": str(matched_user.id),"logged_id" :matched_user.logged_in_id})
+
 
             return {
 
@@ -96,12 +108,16 @@ def login(user: loginRequest):
                     "role": matched_user.role,
                     "status": matched_user.status,
                     "problem_type": matched_user.problem_type,
-                    "preference": matched_user.preference,
                     "institution": matched_user.institution,
                     "programme": matched_user.programme,
-                    "location": matched_user.location
+                    "location": matched_user.location,
+                    # 登录后将头像路径和格言交给前端保存到 user_info。
+                    "img": matched_user.photo,
+                    "motto": matched_user.motto
                 }
+            
             }
+            
         # 密码错误
         else:
 
@@ -135,6 +151,63 @@ def register(user: registerRequest):
                 "msg": "email already registered"
             }
 
+        status = user.status
+        problem_type = user.problem_type
+
+        if not user.username.strip():
+
+            return {
+                "msg": "invalid username"
+            }
+
+        if user.role not in {"student", "mentor"}:
+
+            return {
+                "msg": "invalid role"
+            }
+
+        if status is not None and status not in VALID_STATUSES:
+
+            return {
+                "msg": "invalid status"
+            }
+
+        if problem_type is not None and problem_type not in VALID_PROBLEM_TYPES:
+
+            return {
+                "msg": "invalid problem type"
+            }
+
+        if user.institution not in VALID_UNIVERSITIES:
+
+            return {
+                "msg": "invalid institution"
+            }
+
+        if user.location not in VALID_CITIES:
+
+            return {
+                "msg": "invalid location"
+            }
+
+        if not user.programme.strip():
+
+            return {
+                "msg": "invalid programme"
+            }
+
+        # 注册提交的头像必须来自后端提供的合法头像白名单。
+        if user.img not in VALID_IMG:
+            return {
+                "msg": "invalid img"
+            }
+
+        # 沿用当前审核规则：个人格言最多 200 个字符。
+        if len(user.motto) > 200:
+            return {
+                "msg": "invalid motto"
+            }
+
         # 检查密码是否合法
         if not verify_legal_password(user.password):
 
@@ -145,16 +218,18 @@ def register(user: registerRequest):
 
         # 创建用户
         new_user = User(
-            username=user.username,
+            username=user.username.strip(),
             email=user.email,
             password_hash=hash_password(user.password),
             role=user.role,
-            status=user.status,
-            problem_type=user.problem_type,
-            preference=user.preference,
+            status=status,
+            problem_type=problem_type,
             institution=user.institution,
-            programme=user.programme,
-            location=user.location
+            programme=user.programme.strip(),
+            location=user.location,
+            # 数据库保存头像路径，不保存图片二进制内容。
+            photo=user.img,
+            motto=user.motto.strip()
         )
 
         db.add(new_user)
@@ -175,7 +250,7 @@ def register(user: registerRequest):
 
         db.add(verification)
 
-        db.commit()
+        
 
         # 发送邮箱验证邮件
         send_email(
@@ -183,14 +258,22 @@ def register(user: registerRequest):
 
             subject="Please verify your email",
 
-            body=f"""
-Please verify your email by clicking the link below:
+            body=f""" Please verify your email by clicking the link below:
+    
+                    http://localhost:5173/user/verify_register_email?token={token}
 
-http://localhost:8000/user/verify_register_email?token={token}
-
-This link will expire in 24 hours.
-"""
+                    This link will expire in 24 hours.
+                """
         )
+
+
+        summary_for_user = AISummary(
+            user_id = new_user.id
+        )
+
+        db.add(summary_for_user)
+
+        db.commit()
 
         return {
             "msg":
@@ -396,37 +479,46 @@ def verify_email(token: str):
         if not record:
 
             return {
-                "msg": "invalid token"
+                "msg": "invalid token",
+                "resend": False 
             }
 
         # token 已使用
         if record.used:
 
             return {
-                "msg": "token already used"
+                "msg": "token already used",
+                "resend": False 
             }
 
         # 当前 UTC 时间
         now = datetime.now(timezone.utc)
 
-        # token 过期
-        if record.expires_at < now:
-
-            return {
-                "msg": "token expired"
-            }
-
-        # 查找用户
         user = db.query(User).filter(
             User.id == record.user_id
         ).first()
 
-        # 用户不存在
+                # 用户不存在
         if not user:
 
             return {
-                "msg": "user not found"
+                "msg": "user not found",
+                "resend": False 
             }
+
+        # token 过期
+        if record.expires_at < now:
+
+            email = user.email
+
+            return {
+                "msg": "token expired",
+                "email": email,
+                "resend": True
+
+            }
+
+
 
         # 设置邮箱已验证
         user.is_email_verified = True
@@ -437,7 +529,8 @@ def verify_email(token: str):
         db.commit()
 
         return {
-            "msg": "email verified successfully"
+            "msg": "email verified successfully",
+            "resend": False 
         }
 
     finally:
@@ -524,7 +617,7 @@ def resend_verification_email(email: str):
 
         # 邮箱验证链接
         verification_link = (
-            f"http://localhost:8000/user/verify_register_email?token={token}"
+            f"http://localhost:5173/user/verify_register_email?token={token}"
         )
 
         # 发送邮件

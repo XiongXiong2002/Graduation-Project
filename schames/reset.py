@@ -1,3 +1,4 @@
+# third-party dependencies
 from pydantic import BaseModel
 
 class ResetPasswordRequest(BaseModel):

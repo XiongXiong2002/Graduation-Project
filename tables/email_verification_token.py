@@ -1,9 +1,11 @@
-from database import Base
-
-from sqlalchemy import Column,Integer,String,Boolean,ForeignKey,DateTime
-
-
+# standard library
 from datetime import datetime, timezone
+
+# third-party dependencies
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+
+# database
+from database import Base
 
 
 class EmailVerificationToken(Base):

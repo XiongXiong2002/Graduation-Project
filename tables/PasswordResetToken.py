@@ -1,4 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+# third-party dependencies
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+
+# database
 from database import Base
 # 用户的密码重设 token 表
 class PasswordResetToken(Base):

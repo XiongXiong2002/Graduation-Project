@@ -1,5 +1,8 @@
-from fastapi import WebSocket
+# standard library
 import asyncio
+
+# third-party dependencies
+from fastapi import WebSocket
 
 
 class ConnectionManager:

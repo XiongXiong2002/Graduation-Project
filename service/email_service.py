@@ -1,13 +1,15 @@
 # 发送邮件相关
+# standard library
+import os
 import smtplib
 
 # 邮件内容格式
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # 环境变量
+# third-party dependencies
 from dotenv import load_dotenv
-import os
 
 
 load_dotenv()

@@ -1,4 +1,7 @@
+# standard library
 import re
+
+# third-party dependencies
 from rapidfuzz import fuzz
 
 
