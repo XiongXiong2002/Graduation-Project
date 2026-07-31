@@ -1,7 +1,9 @@
 # standard library
+import os
 from datetime import datetime, timedelta, timezone
 
 # third-party dependencies
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -12,8 +14,13 @@ from database import SessionLocal
 # database tables
 from tables.user import User
 
-# 🔐 用来签名 token 的密钥
-SECRET_KEY = "2273047bb4c10f8386e9fc1db1b42e474710870c250c79bb24e99d708aee1c67"
+load_dotenv()
+
+# 用来签名和验证 JWT 的密钥
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY is not configured")
 
 # 🔐 使用的加密算法（固定写 HS256 就行）
 ALGORITHM = "HS256"
