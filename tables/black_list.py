@@ -7,7 +7,7 @@ from database import Base
 
 class BlackList(Base):
 
-    __tablename__ = "blackList"
+    __tablename__ = "black_list"
     id = Column(Integer, primary_key=True, index=True)
 
     # 属于哪个用户

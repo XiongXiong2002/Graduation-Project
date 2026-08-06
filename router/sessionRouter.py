@@ -177,13 +177,13 @@ def create_session(
 
 @app.post("/sessions/close")
 async def close_session_api(session_info:session_close_info,current_user: User = Depends(get_current_user)):
-    # 1.先发送通知给前端，告知 session 已关闭
-    await manager.broadcast(session_info.seesion_id,{"type": "session_closed"})
-
-    # 2. 再关闭数据库 session
+    # 先验证当前用户属于该会话，并关闭数据库 session。
+    # close_session_by_id 会在非会话参与者请求时返回 403，避免越权请求
+    # 在完成归属验证前广播或关闭其他用户的 WebSocket。
     result = close_session_by_id(session_info.seesion_id, current_user.id)
 
-    # 3. 再关闭该 session 下所有 websocket 连接
+    # 验证成功后再通知并关闭该 session 下的 WebSocket 连接。
+    await manager.broadcast(session_info.seesion_id,{"type": "session_closed"})
     await manager.close(session_info.seesion_id)
 
     if session_info.match_type == "ai":

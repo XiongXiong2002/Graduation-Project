@@ -1,5 +1,5 @@
 # third-party dependencies
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 
 # authentication
@@ -31,10 +31,8 @@ def join(current_user: User = Depends(get_current_user)):
         # 只有导师允许加入匹配池
         # =========================
         if current_user.role != "mentor":
-
-            return {
-                "msg": "only mentor can join match pool"
-            }
+            # 使用 403 明确表示用户已登录，但没有导师权限。
+            raise HTTPException(status_code=403, detail="only mentor can join match pool")
 
         # =========================
         # 检查是否已经存在 open session
@@ -155,6 +153,10 @@ def leave(current_user: User = Depends(get_current_user)):
 # 负责拿到所有的
 @app.get("/match/find")
 def find_match_for_user(current_user: User = Depends(get_current_user)):
+    # 导师列表属于学生端功能，防止导师或其他角色直接调用接口。
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="only student can find mentors")
+
     db = SessionLocal()
 
     try:
