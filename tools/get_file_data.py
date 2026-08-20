@@ -1,6 +1,9 @@
 # standard library
 import json
 from pathlib import Path
+import re
+
+from fastapi import HTTPException
 
 
 # 当前项目根目录
@@ -42,17 +45,78 @@ def load_city_names() -> set[str]:
     }
 
 
+def load_university_dict() -> dict[str, set[str]]:
+    """
+    启动时读取大学 JSON，
+    转换为：
+
+    {
+        "imperial college london": {
+            "@ic.ac.uk",
+            "@imperial.ac.uk"
+        }
+    }
+    """
+
+    with UNIVERSITY_FILE.open("r", encoding="utf-8") as file:
+        universities = json.load(file)
+
+    return {
+        item["name"].strip().lower(): {
+            domain.strip().lower()
+            for domain in item.get("domains", [])
+            if isinstance(domain, str) and domain.strip()
+        }
+        for item in universities
+        if item.get("name")
+    }
+
+
+# =========================
+# 只在模块第一次加载时执行一次
+# =========================
+UNIVERSITY_DOMAINS = load_university_dict()
+
+
 VALID_UNIVERSITIES = load_university_names()
 VALID_CITIES = load_city_names()
 
 
+def verify_mentor_email( university_name: str, email: str) -> bool:
+
+    """
+    验证导师邮箱是否属于指定学校。
+    """
+
+    # 学校名字统一小写
+    university_name = university_name.strip().lower()
+
+    # 查这个学校
+    domains = UNIVERSITY_DOMAINS.get(university_name)
+
+    if not domains:
+        raise HTTPException(status_code=403,detail="there is no valid email for this university")
+
+    # 从邮箱中提取 @ 后缀
+    match = re.search(r"@[^@\s]+$", email.strip().lower())
+
+    if not match:
+        raise HTTPException(status_code=403,detail="invalid email format")
+
+    email_domain = match.group()
+    if email_domain not in domains:
+        raise HTTPException(status_code=403,detail="invalid university email")
+
+    return True
+
 VALID_STATUSES = {
     "current_student",
     "considering_withdrawal",
+    "decided_to_withdraw",
     "withdrawn",
-    "graduate",
-    "not_student",
 }
+
+VALID_ACADEMIC_LEVELS = {1, 2, 3, 4}
 
 VALID_PROBLEM_TYPES = {
     "academic",
@@ -62,7 +126,22 @@ VALID_PROBLEM_TYPES = {
     "other",
 }
 
-# 用户只能选择这里列出的头像路径；注册和修改资料时都会再次校验。
-VALID_IMG = {
-    "/img/favicon.svg",
-}
+def get_default_img() -> str:
+    """返回后端 img 目录中的默认图标地址。"""
+    # 头像上传修改（后端生成头像地址）：默认头像地址完全由后端目录生成，前端不自行指定地址。
+    img_dir = BASE_DIR / "img"
+    supported_suffixes = {".svg", ".jpg", ".jpeg", ".png", ".webp"}
+    default_images = sorted(
+        path for path in img_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in supported_suffixes
+    )
+
+    if not default_images:
+        raise HTTPException(status_code=500, detail="default avatar not found")
+
+    # 头像上传修改（后端生成头像地址）：优先选择 SVG 图标，避免随机命名的用户上传图成为默认头像。
+    default_icon = next(
+        (path for path in default_images if path.suffix.lower() == ".svg"),
+        default_images[0]
+    )
+    return f"/img/{default_icon.name}"

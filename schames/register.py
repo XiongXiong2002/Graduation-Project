@@ -2,6 +2,7 @@
 from typing import Optional
 
 # third-party dependencies
+from fastapi import UploadFile
 from pydantic import BaseModel, EmailStr
 
 class registerRequest(BaseModel):
@@ -9,8 +10,9 @@ class registerRequest(BaseModel):
     password: str   
     role : str
     username: str
-    status: Optional[str] =None
-    problem_type: Optional[str] = None
+    status: str
+    problem_type: str
+    academic_level: int
 
     # 学校信息
     institution:str
@@ -18,9 +20,8 @@ class registerRequest(BaseModel):
     programme:str
     # 当前地区
     location: str
-    #选择图片
-    # 注册时选择的合法头像路径。
-    img :str
+    # 头像上传修改（后端生成头像地址）：完整 FormData schema 中直接接收可选图片文件。
+    img: Optional[UploadFile] = None
     #格言
     # 注册时填写的个人格言。
     motto :str

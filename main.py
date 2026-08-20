@@ -10,6 +10,7 @@ from router.chatRouter import app as chat_router
 from router.matchRouter import app as match_router
 from router.sessionRouter import app as session_router
 from router.userRouter import app as user_router
+from router.adminRouter import app as admin_router
 
 # database initialization
 from init_db import init_db
@@ -54,6 +55,7 @@ app.include_router(session_router)
 app.include_router(chat_router)
 app.include_router(match_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 # =========================
 # 测试接口

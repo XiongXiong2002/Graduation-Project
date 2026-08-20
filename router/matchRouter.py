@@ -99,7 +99,8 @@ def join(current_user: User = Depends(get_current_user)):
 
             location=current_user.location,
 
-            programme=current_user.programme
+            programme=current_user.programme,
+            academic_level=current_user.academic_level
         )
 
         # 写入数据库
@@ -201,6 +202,7 @@ def _find_match_for_user(current_user: User, db):
         .filter(
             MatchPool.status == current_user.status,
             MatchPool.problem_type == current_user.problem_type,
+            MatchPool.academic_level == current_user.academic_level,
             User.role == "mentor",
             User.id != current_user.id,
         )
@@ -294,7 +296,8 @@ def _find_match_for_user(current_user: User, db):
         "location": candidate.location,
         "status": candidate.status,
         "problem_type": candidate.problem_type,
-        # 导师列表需要头像路径和格言进行展示。
+        "academic_level": candidate.academic_level,
+        # 头像上传修改（后端生成头像地址）：直接返回数据库中已经确定的导师头像地址。
         "img": candidate.photo,
         "motto": candidate.motto,
         "score": score,

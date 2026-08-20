@@ -20,6 +20,9 @@ class EmailVerificationToken(Base):
     # 随机 token
     token = Column(String(255),nullable=False,unique=True,index=True)
 
+    # purpose 区分注册邮箱验证 register 和学校邮箱验证 mentor。
+    purpose = Column(String(20), nullable=False, default="register")
+
     # 是否已经使用
     used = Column(Boolean,nullable=False,default=False)
 

@@ -1,12 +1,11 @@
 # standard library
-import base64
-import json
-import mimetypes
 from datetime import datetime, timezone
-from pathlib import Path
+import json
+from typing import Annotated
 
 # third-party dependencies
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException
+
 from sqlalchemy.exc import IntegrityError
 
 # authentication
@@ -28,9 +27,10 @@ from tools.get_file_data import (
     load_city_names,
     VALID_PROBLEM_TYPES,
     VALID_STATUSES,
-    VALID_IMG,
+    VALID_ACADEMIC_LEVELS,
     load_university_names,
 )
+from tools.avatar import delete_stored_avatar, save_approved_avatar
 
 
 app = APIRouter()
@@ -40,7 +40,8 @@ VALID_LOCATIONS = load_city_names()
 
 @app.post("/user/update_profile")
 def update_profile(
-    data: personalInfoRequest,
+    # 头像上传修改（后端生成头像地址）：完整资料 schema 直接从 multipart FormData 读取。
+    data: Annotated[personalInfoRequest, Form()],
 
     # =========================
     # FastAPI 自动认证
@@ -90,6 +91,11 @@ def update_profile(
                 "msg": "invalid problem type"
             }
 
+        if data.academic_level is not None and data.academic_level not in VALID_ACADEMIC_LEVELS:
+            return {
+                "msg": "invalid academic level"
+            }
+
  
         if data.institution is not None and data.institution not in VALID_UNIVERSITIES:
             return {
@@ -104,12 +110,6 @@ def update_profile(
         if data.programme is not None and not data.programme.strip():
             return {
                 "msg": "invalid programme"
-            }
-        
-        # 修改头像时仍需验证路径属于合法头像白名单。
-        if data.img is not None and data.img not in VALID_IMG :
-            return{
-                "msg": "invalid img"
             }
         
         # 沿用已有格言审核：长度不能超过 200 个字符。
@@ -130,6 +130,9 @@ def update_profile(
         if data.problem_type is not None:
             user.problem_type = data.problem_type
 
+        if data.academic_level is not None:
+            user.academic_level = data.academic_level
+
 
 
         if data.institution is not None:
@@ -141,9 +144,11 @@ def update_profile(
         if data.location is not None:
             user.location = data.location
 
-        # 前端提交的是选中头像的路径，数据库只保存该路径。
+        old_avatar = user.photo
+
+        # 头像上传修改（后端生成头像地址）：有新文件才替换头像，否则保留数据库原地址。
         if data.img is not None:
-            user.photo = data.img
+            user.photo = save_approved_avatar(data.img)
 
         # 去掉格言两端的空格后再保存。
         if data.motto is not None:
@@ -154,6 +159,10 @@ def update_profile(
         db.commit()
         db.refresh(user)
 
+        # 头像上传修改（后端生成头像地址）：资料提交成功后清理旧的用户上传文件。
+        if data.img is not None:
+            delete_stored_avatar(old_avatar, user.photo)
+
         return {
             "msg": "profile updated",
 
@@ -163,10 +172,10 @@ def update_profile(
                 "role": user.role,
                 "status": user.status,
                 "problem_type": user.problem_type,
+                "academic_level": user.academic_level,
                 "institution": user.institution,
                 "programme": user.programme,
                 "location": user.location,
-                # 返回最新头像路径和格言，供前端同步 localStorage。
                 "img": user.photo,
                 "motto": user.motto
             }
@@ -304,28 +313,3 @@ def delete_blacklist( blockinfo: BlockInfo,current_user: User = Depends(get_curr
 
 
 
-@app.get("/user/get_img")
-def get_img():
-    # 返回合法头像的实际图片内容，同时保留图片路径。
-    # 图片内容用于前端展示；图片路径用于用户提交资料时进行白名单校验。
-    images = []
-
-    for image_value in sorted(VALID_IMG):
-        # VALID_IMG 中保存的是公开路径，例如 /img/favicon.svg。
-        # 去掉开头的 / 后，转换为后端可以读取的本地文件路径。
-        image_path = Path(image_value.lstrip("/"))
-        mime_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
-
-        # JSON 不能直接保存二进制数据，因此先将图片字节编码为 Base64 字符串。
-        encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
-
-        images.append({
-            # path 会在注册或修改资料时传回后端，并由 VALID_IMG 再次验证。
-            "path": image_value,
-            # mime_type 告诉前端如何还原图片类型。
-            "mime_type": mime_type,
-            # content_base64 是实际图片内容，不是图片访问地址。
-            "content_base64": encoded,
-        })
-
-    return images

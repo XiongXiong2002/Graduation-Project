@@ -1,8 +1,9 @@
 # standard library
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 # third-party dependencies
-from fastapi import APIRouter
+from fastapi import APIRouter, Form
 
 # database
 from database import SessionLocal
@@ -12,12 +13,14 @@ from schames.login import loginRequest
 from schames.register import registerRequest
 from schames.reset import ResetPasswordRequest
 from schames.check_reset import CheckResetTokenRequest
+from schames.mentor_verification import MentorVerificationRequest
 
 # database tables
 from tables.user import User
 from tables.email_verification_token import EmailVerificationToken
 from tables.PasswordResetToken import PasswordResetToken
 from tables.ai_summary import AISummary
+from tables.mentor_verify_record import MentorVerifyRecord
 
 
 # auth
@@ -30,12 +33,14 @@ from tools.password_hashed import (
     verify_password
 )
 from tools.get_file_data import (
-    load_city_names,
-    load_university_names,
+    VALID_UNIVERSITIES,
+    VALID_CITIES,
     VALID_PROBLEM_TYPES,
     VALID_STATUSES,
-    VALID_IMG,
+    VALID_ACADEMIC_LEVELS,
+    verify_mentor_email
 )
+from tools.avatar import save_approved_avatar
 
 # token generator
 from tools.token_create import generate_token
@@ -46,8 +51,6 @@ from service.email_service import send_email
 # 创建 router
 app = APIRouter()
 
-VALID_CITIES = load_city_names()
-VALID_UNIVERSITIES = load_university_names()
 
 
 # =========================
@@ -72,6 +75,12 @@ def login(user: loginRequest):
                 "msg": "invalid email or password"
             }
 
+        # 密码错误时不暴露邮箱或 Mentor 审核状态。
+        if not verify_password(user.password, matched_user.password_hash):
+            return {
+                "msg": "invalid email or password"
+            }
+
         # 邮箱未验证
         if not matched_user.is_email_verified:
 
@@ -80,8 +89,22 @@ def login(user: loginRequest):
                 "email": matched_user.email
             }
 
-        # 密码正确
-        if verify_password(user.password,matched_user.password_hash):
+        if matched_user.role == "mentor":
+            # 人工审核中的 Mentor 保持未登录，只向前端返回审核中状态。
+            if matched_user.mentor_verify_status == "pending":
+                return {
+                    "msg": "mentor verification pending"
+                }
+
+            # disapprove 承接原 Boolean False：进入 Mentor 验证方式页面。
+            if matched_user.mentor_verify_status == "disapprove":
+                return {
+                    "msg": "mentor not verified",
+                    "email": matched_user.email
+                }
+
+        # 密码、邮箱和 Mentor 资格均已通过。
+        if matched_user.role != "mentor" or matched_user.mentor_verify_status == "approve":
             matched_user.logged_in_id = matched_user.logged_in_id+1
 
             # 保存到数据库
@@ -108,23 +131,17 @@ def login(user: loginRequest):
                     "role": matched_user.role,
                     "status": matched_user.status,
                     "problem_type": matched_user.problem_type,
+                    "academic_level": matched_user.academic_level,
                     "institution": matched_user.institution,
                     "programme": matched_user.programme,
                     "location": matched_user.location,
-                    # 登录后将头像路径和格言交给前端保存到 user_info。
+                    # 头像上传修改（后端生成头像地址）：登录响应把数据库 user 中的头像地址交给前端 user_info。
                     "img": matched_user.photo,
                     "motto": matched_user.motto
                 }
             
             }
             
-        # 密码错误
-        else:
-
-            return {
-                "msg": "invalid email or password"
-            }
-
     finally:
 
         db.close()
@@ -134,8 +151,10 @@ def login(user: loginRequest):
 # 用户注册
 # =========================
 @app.post("/user/register")
-def register(user: registerRequest):
-
+def register(
+    # 头像上传修改（后端生成头像地址）：完整注册 schema 直接从 multipart FormData 读取。
+    user: Annotated[registerRequest, Form()]
+):
     db = SessionLocal()
 
     try:
@@ -153,6 +172,7 @@ def register(user: registerRequest):
 
         status = user.status
         problem_type = user.problem_type
+        academic_level = user.academic_level
 
         if not user.username.strip():
 
@@ -166,16 +186,21 @@ def register(user: registerRequest):
                 "msg": "invalid role"
             }
 
-        if status is not None and status not in VALID_STATUSES:
+        if status not in VALID_STATUSES:
 
             return {
                 "msg": "invalid status"
             }
 
-        if problem_type is not None and problem_type not in VALID_PROBLEM_TYPES:
+        if problem_type not in VALID_PROBLEM_TYPES:
 
             return {
                 "msg": "invalid problem type"
+            }
+
+        if academic_level not in VALID_ACADEMIC_LEVELS:
+            return {
+                "msg": "invalid academic level"
             }
 
         if user.institution not in VALID_UNIVERSITIES:
@@ -196,12 +221,6 @@ def register(user: registerRequest):
                 "msg": "invalid programme"
             }
 
-        # 注册提交的头像必须来自后端提供的合法头像白名单。
-        if user.img not in VALID_IMG:
-            return {
-                "msg": "invalid img"
-            }
-
         # 沿用当前审核规则：个人格言最多 200 个字符。
         if len(user.motto) > 200:
             return {
@@ -216,7 +235,9 @@ def register(user: registerRequest):
                 "Password requirements: 8–20 characters, must include uppercase letters, lowercase letters, and special characters"
             }
 
-        # 创建用户
+        # 头像上传修改（后端生成头像地址）：同一请求检测头像；未上传时使用后端默认图标。
+        avatar_path = save_approved_avatar(user.img)
+
         new_user = User(
             username=user.username.strip(),
             email=user.email,
@@ -224,11 +245,13 @@ def register(user: registerRequest):
             role=user.role,
             status=status,
             problem_type=problem_type,
+            academic_level=academic_level,
             institution=user.institution,
             programme=user.programme.strip(),
             location=user.location,
-            # 数据库保存头像路径，不保存图片二进制内容。
-            photo=user.img,
+            # 头像上传修改（后端生成头像地址）：user.photo 只保存后端批准并生成的头像地址。
+            photo=avatar_path,
+            mentor_verify_status="disapprove",
             motto=user.motto.strip()
         )
 
@@ -468,11 +491,12 @@ def verify_email(token: str):
 
     try:
 
-        # 查找 token
+        # 邮箱验证只接受 purpose=register，其他用途的 token 无法用于验证注册邮箱。
         record = db.query(
             EmailVerificationToken
         ).filter(
-            EmailVerificationToken.token == token
+            EmailVerificationToken.token == token,
+            EmailVerificationToken.purpose == "register"
         ).first()
 
         # token 不存在
@@ -642,5 +666,183 @@ This link will expire in 24 hours.
     finally:
 
         db.close()
+
+# =========================
+# Mentor 学校邮箱验证接口
+# =========================
+@app.get("/user/verify_mentor_email")
+def verify_mentor_email_token(token: str):
+    # 每次请求单独创建数据库会话，结束时统一关闭
+    db = SessionLocal()
+
+    try:
+        # 根据邮件链接中的 token 查找验证记录
+        record = db.query(EmailVerificationToken).filter(
+            EmailVerificationToken.token == token,
+            EmailVerificationToken.purpose == "mentor"
+        ).first()
+
+        # token 不存在，拒绝本次验证
+        if not record:
+            return {"msg": "invalid token", "resend": False}
+
+        # token 只能使用一次，防止重复验证
+        if record.used:
+            return {"msg": "token already used", "resend": False}
+
+        # 通过验证记录中的 user_id 查找对应用户
+        user = db.query(User).filter(
+            User.id == record.user_id
+        ).first()
+
+        # 验证记录对应的用户不存在
+        if not user:
+            return {"msg": "user not found", "resend": False}
+
+        # token 已过期，返回邮箱供后续重新发送验证邮件
+        if record.expires_at < datetime.now(timezone.utc):
+            return {
+                "msg": "token expired",
+                "email": user.email,
+                "resend": True
+            }
+
+        # 该接口只允许验证 Mentor 用户
+        if user.role != "mentor":
+            return {"msg": "user is not a mentor", "resend": False}
+
+        # 学校邮箱后缀已在发送邮件前完成校验；能取得该 token 代表用户可访问该学校邮箱。
+
+        # 标记 Mentor 资格验证成功，并将 token 设置为已使用
+        user.mentor_verify_status = "approve"
+        record.used = True
+
+        # 只记录 Mentor、学校和验证时间，不保存真实学校邮箱。
+        verify_record = MentorVerifyRecord(
+            mentor_id=user.id,
+            timestamp=datetime.now(timezone.utc),
+            institution=user.institution,
+        )
+        
+
+
+        db.add(verify_record)
+        # 同一个事务保存用户状态和 token 状态
+        db.commit()
+
+        return {
+            "msg": "mentor email verified successfully",
+            "resend": False
+        }
+
+    finally:
+        # 无论验证成功还是失败，都关闭数据库会话
+        db.close()
+
+
+@app.get("/user/get_mentor_verification")
+def check_verification(email: str):
+
+        db = SessionLocal()
+
+        try:
+
+            # 查找用户
+            user = db.query(User).filter(
+                User.email == email
+            ).first()
+
+            # 用户不存在
+            if not user:
+
+                return {
+                    "verified": False
+                }
+
+            # 供 Mentor 验证方式页面轮询身份验证状态
+            return {
+                "verified": user.mentor_verify_status == "approve",
+                "status": user.mentor_verify_status
+            }
+
+        finally:
+            
+            db.close()
+
+@app.post("/user/send_mentor_verification_email")
+def send_mentor_verification_email(request: MentorVerificationRequest):
+    # 该接口只发送学校邮箱验证邮件，不重复发送普通注册邮箱邮件。
+    db = SessionLocal()
+    
+    try:
+            # 查找用户
+        user = db.query(User).filter(
+            User.email == request.account_email
+        ).first()
+    
+            # 用户不存在
+        if not user:
+            return {"msg":"if this email exists, a verification email has been sent"}
+    
+            # 已验证
+        if user.mentor_verify_status == "approve":
+    
+            return {"msg": "mentor already verified"}
+
+        if user.role != "mentor":
+            return {"msg": "user is not a mentor"}
+
+        # 必须先完成普通注册邮箱验证，才能开始 Mentor 学校邮箱验证。
+        if not user.is_email_verified:
+            return {"msg": "account email not verified"}
+
+        # 校验学校邮箱后缀是否属于用户注册时选择的学校。
+        is_mentor_email_valid = verify_mentor_email(
+            user.institution,
+            str(request.mentor_email)
+        )
+        
+        if  is_mentor_email_valid:
+            # 只生成学校邮箱验证 token；注册邮箱在注册阶段已经完成验证。
+            mentor_token = generate_token()
+
+            # 与普通注册邮箱共用 token 表，通过 purpose 区分用途。
+            mentor_verification = EmailVerificationToken(
+                user_id=user.id,
+                token=mentor_token,
+                purpose="mentor",
+                expires_at=datetime.now(timezone.utc)
+                + timedelta(hours=24)
+            )
+    
+            db.add(mentor_verification)
+
+            db.commit()
+    
+            mentor_verification_link = (
+                f"http://localhost:5173/user/verify_mentor_email?token={mentor_token}"
+            )
+
+            # 向学校邮箱发送 Mentor 身份验证邮件。
+            send_email(
+                to_email=str(request.mentor_email),
+                subject="Please verify your university email",
+                body=f"""
+                        Please verify your university email by clicking the link below:
+
+                        {mentor_verification_link}
+
+                        This link will expire in 24 hours.
+                    """
+            )
+    
+            return {
+                "msg": "mentor verification email sent"
+            }
+    
+    finally:
+    
+            db.close()
+
 
 
