@@ -181,16 +181,28 @@ async def chat_ws(websocket: WebSocket, token: str):
 
 
 
-        except WebSocketDisconnect:
-            print("broken")
-            manager.disconnect(session_id, websocket)
+        except WebSocketDisconnect as error:
+            print(
+                f"WebSocket disconnected: "
+                f"session_id={session_id}, "
+                f"code={error.code}, "
+                f"reason={error.reason}"
+            )
+            await manager.disconnect(session_id, websocket)
 
-    except Exception as e:
+    except Exception as error:
+        print(
+            f"Unexpected WebSocket error: "
+            f"session_id={session_id}, "
+            f"type={type(error).__name__}, "
+            f"error={error}"
+        )
+
+        if session_id is not None:
+            await manager.disconnect(session_id, websocket)
+
         try:
-            await websocket.accept()
-            await websocket.send_json({"error": str(e)})
-            await websocket.close()
-        except Exception:
-            pass
-
+            await websocket.close(code=1011)
+        except Exception as close_error:
+            print(f"Unable to close WebSocket cleanly: {close_error}")
 

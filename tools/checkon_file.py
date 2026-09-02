@@ -7,14 +7,13 @@ from nudenet import NudeDetector
 from PIL import Image, UnidentifiedImageError
 
 
-# import pytesseract
-# from PIL import Image
-# from detoxify import Detoxify
+import pytesseract
+from detoxify import Detoxify
 
 
 
 detector = NudeDetector()
-# detoxify_model = Detoxify("unbiased")
+detoxify_model = Detoxify("unbiased")
 
 
 def check_image_text(file: UploadFile) -> bool:
@@ -62,25 +61,25 @@ def check_image_text(file: UploadFile) -> bool:
 
 
     # # OCR,此处等到部署在服务器上再启用，部署在本地时会报错
-    # text = pytesseract.image_to_string(
-    #     Image.open(file.file)
-    # ).strip()
+    text = pytesseract.image_to_string(
+        Image.open(file.file)
+    ).strip()
 
-    # # 图片没有文字
-    # if not text:
-    #     return True
+    # 图片没有文字
+    if not text:
+        return True
 
-    # # 检测文字
-    # result = detoxify_model.predict(text)
+    # 检测文字
+    result = detoxify_model.predict(text)
 
-    # if result["toxicity"] > 0.8:
-    #     return False
+    if result["toxicity"] > 0.8:
+        return False
 
-    # if result["threat"] > 0.7:
-    #     return False
+    if result["threat"] > 0.7:
+        return False
 
-    # if result["identity_attack"] > 0.7:
-    #     return False
+    if result["identity_attack"] > 0.7:
+        return False
 
     return True
 

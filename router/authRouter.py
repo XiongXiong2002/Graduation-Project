@@ -283,7 +283,7 @@ def register(
 
             body=f""" Please verify your email by clicking the link below:
     
-                    http://localhost:5173/user/verify_register_email?token={token}
+                    http://studentpeersupport.com/user/verify_register_email?token={token}
 
                     This link will expire in 24 hours.
                 """
@@ -351,7 +351,7 @@ def request_password_reset(email: str):
 
         # reset password 页面链接
         reset_link = (
-            f"http://localhost:5173/reset_password?token={token}"
+            f"http://studentpeersupport.com/reset_password?token={token}"
         )
 
         # 发送邮件
@@ -628,12 +628,7 @@ def resend_verification_email(email: str):
         token = generate_token()
 
         # 创建验证 token
-        verification = EmailVerificationToken(
-            user_id=user.id,
-            token=token,
-            expires_at=datetime.now(timezone.utc)
-            + timedelta(hours=24)
-        )
+        verification = EmailVerificationToken( user_id=user.id,token=token,expires_at=datetime.now(timezone.utc)+ timedelta(hours=24))
 
         db.add(verification)
 
@@ -641,7 +636,7 @@ def resend_verification_email(email: str):
 
         # 邮箱验证链接
         verification_link = (
-            f"http://localhost:5173/user/verify_register_email?token={token}"
+            f"http://studentpeersupport.com/user/verify_register_email?token={token}"
         )
 
         # 发送邮件
@@ -651,12 +646,12 @@ def resend_verification_email(email: str):
             subject="Please verify your email",
 
             body=f"""
-Please verify your email by clicking the link below:
+                    Please verify your email by clicking the link below:
 
-{verification_link}
+                    {verification_link}
 
-This link will expire in 24 hours.
-"""
+                    This link will expire in 24 hours.
+                    """
         )
 
         return {
@@ -796,9 +791,10 @@ def send_mentor_verification_email(request: MentorVerificationRequest):
         if not user.is_email_verified:
             return {"msg": "account email not verified"}
 
-        # 校验学校邮箱后缀是否属于用户注册时选择的学校。
+        # 使用 Mentor 验证页本次选择的学校校验邮箱后缀。
+        # 这样注册时误选学校不会导致用户无法完成 Mentor 验证。
         is_mentor_email_valid = verify_mentor_email(
-            user.institution,
+            request.institution,
             str(request.mentor_email)
         )
         
@@ -820,7 +816,7 @@ def send_mentor_verification_email(request: MentorVerificationRequest):
             db.commit()
     
             mentor_verification_link = (
-                f"http://localhost:5173/user/verify_mentor_email?token={mentor_token}"
+                f"http://studentpeersupport.com/user/verify_mentor_email?token={mentor_token}"
             )
 
             # 向学校邮箱发送 Mentor 身份验证邮件。
