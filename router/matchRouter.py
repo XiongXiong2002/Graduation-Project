@@ -1,6 +1,9 @@
+# standard library
+from datetime import datetime, timedelta, timezone
+
 # third-party dependencies
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 # authentication
 from auth import get_current_user
@@ -195,9 +198,10 @@ def _find_match_for_user(current_user: User, db):
     # MatchPool 保存的是导师加入匹配池时
     # 的资料快照
     # =========================
-    mentors = (
-        db.query(User)
-        # 获取应该匹配的导师的个人信息
+    mentor_rows = (
+        db.query(User, MatchPool)
+        # 同时取得导师资料和对应的匹配池记录，
+        # 便于硬筛选完成后检查心跳时间。
         .join(MatchPool, MatchPool.mentor_id == User.id)
         .filter(
             MatchPool.status == current_user.status,
@@ -235,7 +239,29 @@ def _find_match_for_user(current_user: User, db):
         )
         .all()
     )
-    
+
+    # =========================
+    # 心跳过期清理
+    #
+    # 上面的第一轮硬筛选全部完成后，
+    # 再检查候选 Mentor 的最后心跳时间。
+    # 超过一分钟未更新的记录：
+    # 1. 从数据库 MatchPool 中删除；
+    # 2. 不加入 mentors，因此也从本次返回列表排除。
+    # =========================
+    heartbeat_cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+    mentors = []
+
+    for candidate, pool_item in mentor_rows:
+        if pool_item.joined_at < heartbeat_cutoff:
+            db.delete(pool_item)
+            continue
+
+        mentors.append(candidate)
+
+    # 一次提交本轮所有过期匹配池记录的删除。
+    db.commit()
+
     # 没有符合条件的导师
     if not mentors:
 

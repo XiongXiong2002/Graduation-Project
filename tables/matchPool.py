@@ -30,5 +30,5 @@ class MatchPool(Base):
     # Year of study the Mentor prefers to support.
     academic_level = Column(Integer, nullable=True, index=True)
 
-    # 导师进入池子的时间
+    # 最后一次心跳的时间
     joined_at = Column(DateTime(timezone=True),default=lambda: datetime.now(timezone.utc),nullable=False)

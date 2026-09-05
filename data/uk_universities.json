@@ -2,7 +2,9 @@
   {
     "name": "Anglia Ruskin University",
     "domains": [
-      "@anglia.ac.uk"
+      "@anglia.ac.uk",
+      "@student.anglia.ac.uk",
+      "@student.aru.ac.uk"
     ]
   },
   {
@@ -77,7 +79,8 @@
   {
     "name": "Coventry University",
     "domains": [
-      "@coventry.ac.uk"
+      "@coventry.ac.uk",
+      "@uni.coventry.ac.uk"
     ]
   },
   {
@@ -224,6 +227,7 @@
   {
     "name": "Middlesex University",
     "domains": [
+      "@live.mdx.ac.uk",
       "@mdx.ac.uk"
     ]
   },
@@ -308,13 +312,15 @@
       "@rh.ac.uk",
       "@rhbnc.ac.uk",
       "@rhul.ac.uk",
+      "@live.rhul.ac.uk",
       "@royalholloway.ac.uk"
     ]
   },
   {
     "name": "Sheffield Hallam University",
     "domains": [
-      "@shu.ac.uk"
+      "@shu.ac.uk",
+      "@student.shu.ac.uk"
     ]
   },
   {
@@ -399,7 +405,8 @@
   {
     "name": "University of Birmingham",
     "domains": [
-      "@bham.ac.uk"
+      "@bham.ac.uk",
+      "@student.bham.ac.uk"
     ]
   },
   {
@@ -411,7 +418,8 @@
   {
     "name": "University of Brighton",
     "domains": [
-      "@bton.ac.uk"
+      "@bton.ac.uk",
+      "@uni.brighton.ac.uk"
     ]
   },
   {
@@ -491,7 +499,8 @@
   {
     "name": "University of Greater Manchester",
     "domains": [
-      "@bolton.ac.uk"
+      "@bolton.ac.uk",
+      "@greatermanchester.ac.uk"
     ]
   },
   {
@@ -521,12 +530,14 @@
   {
     "name": "University of Kent",
     "domains": [
+      "@kent.ac.uk",
       "@ukc.ac.uk"
     ]
   },
   {
     "name": "University of Lancashire",
     "domains": [
+      "@lancashire.ac.uk",
       "@uclan.ac.uk"
     ]
   },
@@ -545,7 +556,8 @@
   {
     "name": "University of Leicester",
     "domains": [
-      "@le.ac.uk"
+      "@le.ac.uk",
+      "@student.le.ac.uk"
     ]
   },
   {
@@ -571,7 +583,9 @@
     "domains": [
       "@man.ac.uk",
       "@manchester.ac.uk",
-      "@mbs.ac.uk"
+      "@mbs.ac.uk",
+      "@postgrad.manchester.ac.uk",
+      "@student.manchester.ac.uk"
     ]
   },
   {
@@ -639,7 +653,8 @@
   {
     "name": "University of Suffolk",
     "domains": [
-      "@ucs.ac.uk"
+      "@ucs.ac.uk",
+      "@uos.ac.uk"
     ]
   },
   {
@@ -669,6 +684,7 @@
   {
     "name": "University of the West of England, Bristol",
     "domains": [
+      "@live.uwe.ac.uk",
       "@uwe.ac.uk"
     ]
   },

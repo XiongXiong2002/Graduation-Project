@@ -1,6 +1,9 @@
+# standard library
+from datetime import datetime, timezone
+
 # third-party dependencies
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 # authentication
 from auth import get_current_user
@@ -24,6 +27,7 @@ from router.matchRouter import find_match_for_user
 # services
 from service.websocket_manager import manager
 from service.ai_service import update_ai_summary
+
 
 
 app = APIRouter()
@@ -243,6 +247,25 @@ def get_open_session(
     try:
 
         # =========================
+        # 更新 Mentor 心跳时间
+        #
+        # 只有当前用户是 Mentor，并且仍在匹配池中时，
+        # 才会将 joined_at 更新为当前时间。
+        # 该字段在此处实际代表“最后一次心跳时间”，
+        # 后续匹配时可用它判断 Mentor 是否已离线。
+        # =========================
+        if current_user.role == "mentor":
+            pool_item = db.query(MatchPool).filter(
+                MatchPool.mentor_id == current_user.id
+            ).first()
+
+            # Mentor 可能已主动退出匹配池，
+            # 此时不创建新记录，也不更新心跳。
+            if pool_item:
+                pool_item.joined_at = datetime.now(timezone.utc)
+                db.commit()
+
+        # =========================
         # 查询当前用户是否存在 open session
         #
         # 同时检查：
@@ -288,8 +311,19 @@ def get_open_session(
             "created_at": session.created_at
         }
 
-    finally:
+    # =========================
+    # 数据库异常处理
+    #
+    # 心跳更新或 Session 查询失败时，
+    # 先回滚当前事务，避免数据库会话保留在错误状态。
+    # 裸 raise 会将原始异常继续交给 FastAPI 的异常处理机制。
+    # =========================
+    except SQLAlchemyError:
+        db.rollback()
+        raise
 
+    finally:
+        # 无论请求成功还是失败，都关闭本次数据库会话。
         db.close()
 
 

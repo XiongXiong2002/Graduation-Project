@@ -20,7 +20,7 @@ from tables.user import User
 from tables.email_verification_token import EmailVerificationToken
 from tables.PasswordResetToken import PasswordResetToken
 from tables.ai_summary import AISummary
-from tables.mentor_verify_record import MentorVerifyRecord
+
 
 
 # auth
@@ -706,22 +706,12 @@ def verify_mentor_email_token(token: str):
         if user.role != "mentor":
             return {"msg": "user is not a mentor", "resend": False}
 
-        # 学校邮箱后缀已在发送邮件前完成校验；能取得该 token 代表用户可访问该学校邮箱。
 
         # 标记 Mentor 资格验证成功，并将 token 设置为已使用
         user.mentor_verify_status = "approve"
         record.used = True
 
-        # 只记录 Mentor、学校和验证时间，不保存真实学校邮箱。
-        verify_record = MentorVerifyRecord(
-            mentor_id=user.id,
-            timestamp=datetime.now(timezone.utc),
-            institution=user.institution,
-        )
-        
 
-
-        db.add(verify_record)
         # 同一个事务保存用户状态和 token 状态
         db.commit()
 
