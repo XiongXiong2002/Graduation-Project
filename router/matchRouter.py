@@ -77,7 +77,7 @@ def join(current_user: User = Depends(get_current_user)):
         if existing:
 
             return {
-                "msg": "already in pool"
+                "msg": "You are already receiving matches. Please stop receiving before joining again."
             }
 
         # =========================
@@ -129,11 +129,30 @@ def join(current_user: User = Depends(get_current_user)):
         db.rollback()
 
         return {
-            "msg": "already in pool"
+            "msg": "You are already receiving matches. Please stop receiving before joining again."
         }
 
     finally:
 
+        db.close()
+
+# =========================
+# 检查当前导师是否在匹配池
+# =========================
+@app.get("/match/status")
+def get_match_status(current_user: User = Depends(get_current_user)):
+    if current_user.role != "mentor":
+        raise HTTPException(status_code=403, detail="only mentor can check match status")
+    db = SessionLocal()
+
+    try:
+        pool_item = db.query(MatchPool).filter(MatchPool.mentor_id == current_user.id).first()
+
+        if pool_item:
+            return {"msg": "in pool"}
+        else:
+            return {"msg": "not in pool"}
+    finally:
         db.close()
 
 @app.post("/match/leave")

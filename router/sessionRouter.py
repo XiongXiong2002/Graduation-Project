@@ -1,5 +1,5 @@
 # standard library
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # third-party dependencies
 from fastapi import APIRouter, Depends, HTTPException
@@ -94,6 +94,15 @@ def create_session(
             ).first()
 
             if not pool_item:
+                raise HTTPException(status_code=409, detail="selected user is no longer available")
+
+            # 点击 Connect 时再次检查心跳，避免导师在列表加载后离线。
+            # 与 /match/find 保持一致：超过 1 分钟未更新即视为过期。
+            heartbeat_cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+            if pool_item.joined_at < heartbeat_cutoff:
+                db.delete(pool_item)
+                # 必须先提交删除，再返回 409，否则关闭数据库连接时删除会被回滚。
+                db.commit()
                 raise HTTPException(status_code=409, detail="selected user is no longer available")
 
         # =========================
